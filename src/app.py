@@ -5,9 +5,12 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+import hmac
+import json
 import os
 from pathlib import Path
 
@@ -18,6 +21,46 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+teacher_security = HTTPBasic(auto_error=False)
+teachers_file = Path(os.environ.get(
+    "TEACHERS_FILE", Path(__file__).parent / "teachers.json"
+))
+
+
+def _load_teachers():
+    try:
+        with teachers_file.open(encoding="utf-8") as teachers_json:
+            teachers = json.load(teachers_json)
+    except FileNotFoundError:
+        return {}
+
+    if not isinstance(teachers, dict) or not all(
+        isinstance(username, str) and isinstance(password, str)
+        for username, password in teachers.items()
+    ):
+        raise RuntimeError("Teacher credentials must be a JSON object of usernames and passwords")
+
+    return teachers
+
+
+def _require_teacher(credentials: HTTPBasicCredentials | None) -> str:
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Teacher login required",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    password = _load_teachers().get(credentials.username)
+    if password is None or not hmac.compare_digest(password, credentials.password):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid teacher username or password",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return credentials.username
 
 # In-memory activity database
 activities = {
@@ -88,9 +131,21 @@ def get_activities():
     return activities
 
 
+@app.post("/auth/login")
+def login(credentials: HTTPBasicCredentials | None = Depends(teacher_security)):
+    username = _require_teacher(credentials)
+    return {"message": f"Logged in as {username}", "username": username}
+
+
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
+def signup_for_activity(
+    activity_name: str,
+    email: str,
+    credentials: HTTPBasicCredentials | None = Depends(teacher_security),
+):
     """Sign up a student for an activity"""
+    _require_teacher(credentials)
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -111,8 +166,14 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
+def unregister_from_activity(
+    activity_name: str,
+    email: str,
+    credentials: HTTPBasicCredentials | None = Depends(teacher_security),
+):
     """Unregister a student from an activity"""
+    _require_teacher(credentials)
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
