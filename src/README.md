@@ -25,12 +25,16 @@ A super simple FastAPI application that allows students to view and sign up for 
    - API documentation: http://localhost:8000/docs
    - Alternative documentation: http://localhost:8000/redoc
 
+Before using teacher controls, copy `teachers.json.example` to `teachers.json` and replace the example password with a unique password. The local credentials file is ignored by git. Set the `TEACHERS_FILE` environment variable to use a different path. Use HTTPS when exposing the app beyond localhost because teacher credentials are sent with authenticated requests.
+
 ## API Endpoints
 
 | Method | Endpoint                                                          | Description                                                         |
 | ------ | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
 | GET    | `/activities`                                                     | Get all activities with their details and current participant count |
-| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Sign up for an activity                                             |
+| POST   | `/auth/login` with HTTP Basic credentials                          | Validate a teacher login                                             |
+| POST   | `/activities/{activity_name}/signup?email=student@mergington.edu` | Sign up a student (teachers only; HTTP Basic required)               |
+| DELETE | `/activities/{activity_name}/unregister?email=student@mergington.edu` | Unregister a student (teachers only; HTTP Basic required)          |
 
 ## Data Model
 
